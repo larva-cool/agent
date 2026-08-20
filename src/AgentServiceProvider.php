@@ -1,36 +1,37 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Larva\Agent;
 
+use Illuminate\Contracts\Support\DeferrableProvider;
 use Illuminate\Support\ServiceProvider;
 
-class AgentServiceProvider extends ServiceProvider
+class AgentServiceProvider extends ServiceProvider implements DeferrableProvider
 {
     /**
-     * Indicates if loading of the provider is deferred.
-     *
-     * @var bool
+     * 注册服务。
      */
-    protected $defer = true;
-
-    /**
-     * Register the service provider.
-     */
-    public function register()
+    public function register(): void
     {
         $this->app->singleton('agent', function ($app) {
-            return new Agent($app['request']->server());
+            $agent = new Agent();
+
+            // Mobile Detect 4.x 不再自动读取 $_SERVER，这里显式注入当前请求的 HTTP 头。
+            $agent->setHttpHeaders($app['request']->server());
+
+            return $agent;
         });
 
         $this->app->alias('agent', Agent::class);
     }
 
     /**
-     * Get the services provided by the provider.
+     * 获取本 Provider 提供的服务。
      *
-     * @return array
+     * @return array<int, string>
      */
-    public function provides()
+    public function provides(): array
     {
         return ['agent', Agent::class];
     }

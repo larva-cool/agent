@@ -1,26 +1,36 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Larva\Agent;
 
-use BadMethodCallException;
+use Detection\Exception\MobileDetectException;
+use Detection\MobileDetect;
 use Jaybizzle\CrawlerDetect\CrawlerDetect;
-use Mobile_Detect;
 
-class Agent extends Mobile_Detect
+/**
+ * 桌面端 / 移动端 User-Agent 解析器。
+ *
+ * 在 Mobile Detect 的基础上补充了桌面设备、桌面操作系统与桌面浏览器的识别规则，
+ * 并通过 CrawlerDetect 提供爬虫识别能力。
+ */
+class Agent extends MobileDetect
 {
     /**
-     * List of desktop devices.
-     * @var array
+     * 桌面设备规则。
+     *
+     * @var array<string, string>
      */
-    protected static $desktopDevices = [
+    protected static array $desktopDevices = [
         'Macintosh' => 'Macintosh',
     ];
 
     /**
-     * List of additional operating systems.
-     * @var array
+     * 补充的操作系统规则。
+     *
+     * @var array<string, string>
      */
-    protected static $additionalOperatingSystems = [
+    protected static array $additionalOperatingSystems = [
         'Windows' => 'Windows',
         'Windows NT' => 'Windows NT',
         'OS X' => 'Mac OS X',
@@ -33,10 +43,11 @@ class Agent extends Mobile_Detect
     ];
 
     /**
-     * List of additional browsers.
-     * @var array
+     * 补充的浏览器规则。顺序即匹配优先级，越靠前越先匹配。
+     *
+     * @var array<string, string>
      */
-    protected static $additionalBrowsers = [
+    protected static array $additionalBrowsers = [
         'Opera Mini' => 'Opera Mini',
         'Opera' => 'Opera|OPR',
         'Edge' => 'Edge|Edg',
@@ -52,11 +63,12 @@ class Agent extends Mobile_Detect
     ];
 
     /**
-     * List of additional properties.
-     * @var array
+     * 补充的版本号提取规则。
+     *
+     * @var array<string, string|array<int, string>>
      */
-    protected static $additionalProperties = [
-        // Operating systems
+    protected static array $additionalProperties = [
+        // 操作系统
         'Windows' => 'Windows NT [VER]',
         'Windows NT' => 'Windows NT [VER]',
         'OS X' => 'OS X [VER]',
@@ -64,7 +76,7 @@ class Agent extends Mobile_Detect
         'AndroidOS' => 'Android [VER]',
         'ChromeOS' => 'CrOS x86_64 [VER]',
 
-        // Browsers
+        // 浏览器
         'Opera Mini' => 'Opera Mini/[VER]',
         'Opera' => [' OPR/[VER]', 'Opera Mini/[VER]', 'Version/[VER]', 'Opera [VER]'],
         'Netscape' => 'Netscape/[VER]',
@@ -76,287 +88,270 @@ class Agent extends Mobile_Detect
     ];
 
     /**
-     * @var CrawlerDetect
+     * 共享的爬虫检测器实例。
      */
-    protected static $crawlerDetect;
+    protected static ?CrawlerDetect $crawlerDetect = null;
 
     /**
-     * Get all detection rules. These rules include the additional
-     * platforms and browsers and utilities.
-     * @return array
+     * 获取扩展检测规则，在 Mobile Detect 原生规则之外补充桌面设备、桌面操作系统与桌面浏览器。
+     *
+     * 该规则集仅用于 is() / is*() 的显式特性判断，不参与 isMobile() / isTablet()，
+     * 否则桌面 UA 会因命中 Windows、Linux 等规则被误判为移动设备。
+     *
+     * @return array<string, string|array<int, string>>
      */
-    public static function getDetectionRulesExtended()
+    public static function getDetectionRulesExtended(): array
     {
         static $rules;
 
-        if (!$rules) {
-            $rules = static::mergeRules(
-                static::$desktopDevices, // NEW
-                static::$phoneDevices,
-                static::$tabletDevices,
-                static::$operatingSystems,
-                static::$additionalOperatingSystems, // NEW
-                static::$browsers,
-                static::$additionalBrowsers, // NEW
-                static::$utilities
-            );
-        }
-
-        return $rules;
-    }
-
-    public function getRules()
-    {
-        if ($this->detectionType === static::DETECTION_TYPE_EXTENDED) {
-            return static::getDetectionRulesExtended();
-        }
-
-        return static::getMobileDetectionRules();
+        return $rules ??= static::mergeRules(
+            static::$desktopDevices,
+            static::$phoneDevices,
+            static::$tabletDevices,
+            static::$operatingSystems,
+            static::$additionalOperatingSystems,
+            static::$browsers,
+            static::$additionalBrowsers,
+        );
     }
 
     /**
-     * @return CrawlerDetect
+     * 获取爬虫检测器。
      */
-    public function getCrawlerDetect()
+    public function getCrawlerDetect(): CrawlerDetect
     {
-        if (static::$crawlerDetect === null) {
-            static::$crawlerDetect = new CrawlerDetect();
-        }
-
-        return static::$crawlerDetect;
+        return static::$crawlerDetect ??= new CrawlerDetect();
     }
 
-    public static function getBrowsers()
+    /**
+     * 获取浏览器规则，补充规则优先。
+     *
+     * @return array<string, string|array<int, string>>
+     */
+    public static function getBrowsers(): array
     {
         return static::mergeRules(
             static::$additionalBrowsers,
-            static::$browsers
+            static::$browsers,
         );
     }
 
-    public static function getOperatingSystems()
+    /**
+     * 获取操作系统规则。
+     *
+     * @return array<string, string|array<int, string>>
+     */
+    public static function getOperatingSystems(): array
     {
         return static::mergeRules(
             static::$operatingSystems,
-            static::$additionalOperatingSystems
+            static::$additionalOperatingSystems,
         );
     }
 
-    public static function getPlatforms()
+    /**
+     * 获取平台规则，等同于 getOperatingSystems()。
+     *
+     * @return array<string, string|array<int, string>>
+     */
+    public static function getPlatforms(): array
     {
-        return static::mergeRules(
-            static::$operatingSystems,
-            static::$additionalOperatingSystems
-        );
+        return static::getOperatingSystems();
     }
 
-    public static function getDesktopDevices()
+    /**
+     * 获取桌面设备规则。
+     *
+     * @return array<string, string>
+     */
+    public static function getDesktopDevices(): array
     {
         return static::$desktopDevices;
     }
 
-    public static function getProperties()
+    /**
+     * 获取版本号提取规则。
+     *
+     * @return array<string, string|array<int, string>>
+     */
+    public static function getProperties(): array
     {
         return static::mergeRules(
             static::$additionalProperties,
-            static::$properties
+            static::$properties,
         );
     }
 
     /**
-     * Get accept languages.
-     * @param string $acceptLanguage
-     * @return array
+     * 解析浏览器可接受的语言列表，按优先级从高到低排序。
+     *
+     * @param string|null $acceptLanguage 为 null 时读取当前请求的 Accept-Language 头
+     * @return array<int, string>
      */
-    public function languages($acceptLanguage = null)
+    public function languages(?string $acceptLanguage = null): array
     {
-        if ($acceptLanguage === null) {
-            $acceptLanguage = $this->getHttpHeader('HTTP_ACCEPT_LANGUAGE');
-        }
+        $acceptLanguage ??= $this->getHttpHeader('HTTP_ACCEPT_LANGUAGE');
 
-        if (!$acceptLanguage) {
+        if (empty($acceptLanguage)) {
             return [];
         }
 
         $languages = [];
 
-        // Parse accept language string.
         foreach (explode(',', $acceptLanguage) as $piece) {
             $parts = explode(';', $piece);
-            $language = strtolower($parts[0]);
-            $priority = empty($parts[1]) ? 1. : floatval(str_replace('q=', '', $parts[1]));
+            $language = strtolower(trim($parts[0]));
 
-            $languages[$language] = $priority;
+            if ($language === '') {
+                continue;
+            }
+
+            $languages[$language] = empty($parts[1])
+                ? 1.0
+                : (float) str_replace('q=', '', trim($parts[1]));
         }
 
-        // Sort languages by priority.
+        // 按优先级降序排列，保持相同优先级的原始顺序。
         arsort($languages);
 
         return array_keys($languages);
     }
 
     /**
-     * Match a detection rule and return the matched key.
-     * @param  array $rules
-     * @param  string|null $userAgent
-     * @return string|bool
+     * 获取浏览器名称，未识别时返回 false。
      */
-    protected function findDetectionRulesAgainstUA(array $rules, $userAgent = null)
+    public function browser(?string $userAgent = null): string|false
     {
-        // Loop given rules
-        foreach ($rules as $key => $regex) {
-            if (empty($regex)) {
-                continue;
-            }
-
-            // Check match
-            if ($this->match($regex, $userAgent)) {
-                return $key ?: reset($this->matchesArray);
-            }
-        }
-
-        return false;
+        return $this->findDetectionRulesAgainstUserAgent(static::getBrowsers(), $userAgent);
     }
 
     /**
-     * Get the browser name.
-     * @param  string|null $userAgent
-     * @return string|bool
+     * 获取操作系统名称，未识别时返回 false。
      */
-    public function browser($userAgent = null)
+    public function platform(?string $userAgent = null): string|false
     {
-        return $this->findDetectionRulesAgainstUA(static::getBrowsers(), $userAgent);
+        return $this->findDetectionRulesAgainstUserAgent(static::getPlatforms(), $userAgent);
     }
 
     /**
-     * Get the platform name.
-     * @param  string|null $userAgent
-     * @return string|bool
+     * 获取设备名称，未识别时返回 false。
      */
-    public function platform($userAgent = null)
-    {
-        return $this->findDetectionRulesAgainstUA(static::getPlatforms(), $userAgent);
-    }
-
-    /**
-     * Get the device name.
-     * @param  string|null $userAgent
-     * @return string|bool
-     */
-    public function device($userAgent = null)
+    public function device(?string $userAgent = null): string|false
     {
         $rules = static::mergeRules(
             static::getDesktopDevices(),
             static::getPhoneDevices(),
             static::getTabletDevices(),
-            static::getUtilities()
         );
 
-        return $this->findDetectionRulesAgainstUA($rules, $userAgent);
+        return $this->findDetectionRulesAgainstUserAgent($rules, $userAgent);
     }
 
     /**
-     * Check if the device is a desktop computer.
-     * @param  string|null $userAgent deprecated
-     * @param  array $httpHeaders deprecated
-     * @return bool
+     * 判断是否为桌面设备，即非移动设备、非平板且非爬虫。
+     *
+     * @throws MobileDetectException 当未设置 User-Agent 时抛出
      */
-    public function isDesktop($userAgent = null, $httpHeaders = null)
+    public function isDesktop(): bool
     {
-        return !$this->isMobile($userAgent, $httpHeaders) && !$this->isTablet($userAgent, $httpHeaders) && !$this->isRobot($userAgent);
+        return !$this->isMobile() && !$this->isTablet() && !$this->isRobot();
     }
 
     /**
-     * Check if the device is a mobile phone.
-     * @param  string|null $userAgent deprecated
-     * @param  array $httpHeaders deprecated
-     * @return bool
+     * 判断是否为手机，即移动设备且非平板。
+     *
+     * @throws MobileDetectException 当未设置 User-Agent 时抛出
      */
-    public function isPhone($userAgent = null, $httpHeaders = null)
+    public function isPhone(): bool
     {
-        return $this->isMobile($userAgent, $httpHeaders) && !$this->isTablet($userAgent, $httpHeaders);
+        return $this->isMobile() && !$this->isTablet();
     }
 
     /**
-     * Get the robot name.
-     * @param  string|null $userAgent
-     * @return string|bool
+     * 获取爬虫名称，非爬虫时返回 false。
      */
-    public function robot($userAgent = null)
+    public function robot(?string $userAgent = null): string|false
     {
-        if ($this->getCrawlerDetect()->isCrawler($userAgent ?: $this->userAgent)) {
-            return ucfirst($this->getCrawlerDetect()->getMatches());
-        }
+        $crawlerDetect = $this->getCrawlerDetect();
 
-        return false;
-    }
-
-    /**
-     * Check if device is a robot.
-     * @param  string|null $userAgent
-     * @return bool
-     */
-    public function isRobot($userAgent = null)
-    {
-        return $this->getCrawlerDetect()->isCrawler($userAgent ?: $this->userAgent);
-    }
-
-    /**
-     * Get the device type
-     * @param null $userAgent
-     * @param null $httpHeaders
-     * @return string
-     */
-    public function deviceType($userAgent = null, $httpHeaders = null)
-    {
-        if ($this->isDesktop($userAgent, $httpHeaders)) {
-            return "desktop";
-        } elseif ($this->isPhone($userAgent, $httpHeaders)) {
-            return "phone";
-        } elseif ($this->isTablet($userAgent, $httpHeaders)) {
-            return "tablet";
-        } elseif ($this->isRobot($userAgent)) {
-            return "robot";
-        }
-
-        return "other";
-    }
-
-    public function version($propertyName, $type = self::VERSION_TYPE_STRING)
-    {
-        if (empty($propertyName)) {
+        if (!$crawlerDetect->isCrawler($userAgent ?? $this->getUserAgent())) {
             return false;
         }
 
-        // set the $type to the default if we don't recognize the type
-        if ($type !== self::VERSION_TYPE_STRING && $type !== self::VERSION_TYPE_FLOAT) {
-            $type = self::VERSION_TYPE_STRING;
+        $matches = $crawlerDetect->getMatches();
+
+        return is_string($matches) && $matches !== '' ? ucfirst($matches) : false;
+    }
+
+    /**
+     * 判断是否为爬虫。
+     */
+    public function isRobot(?string $userAgent = null): bool
+    {
+        return $this->getCrawlerDetect()->isCrawler($userAgent ?? $this->getUserAgent());
+    }
+
+    /**
+     * 获取设备类型：desktop、phone、tablet、robot 之一。
+     *
+     * @throws MobileDetectException 当未设置 User-Agent 时抛出
+     */
+    public function deviceType(): string
+    {
+        if ($this->isRobot()) {
+            return 'robot';
         }
 
-        $properties = self::getProperties();
+        if ($this->isTablet()) {
+            return 'tablet';
+        }
 
-        // Check if the property exists in the properties array.
-        if (true === isset($properties[$propertyName])) {
+        if ($this->isMobile()) {
+            return 'phone';
+        }
 
-            // Prepare the pattern to be matched.
-            // Make sure we always deal with an array (string is converted).
-            $properties[$propertyName] = (array) $properties[$propertyName];
+        return 'desktop';
+    }
 
-            foreach ($properties[$propertyName] as $propertyMatchString) {
-                if (is_array($propertyMatchString)) {
-                    $propertyMatchString = implode("|", $propertyMatchString);
-                }
+    /**
+     * 使用扩展规则集匹配指定规则名，使 is('Windows')、isSafari() 等桌面特性判断可用。
+     */
+    protected function matchUserAgentWithRule(string $ruleName): bool
+    {
+        $rules = array_change_key_case(static::getDetectionRulesExtended());
+        $regex = $rules[strtolower($ruleName)] ?? null;
 
-                $propertyPattern = str_replace('[VER]', self::VER, $propertyMatchString);
+        if (empty($regex)) {
+            return false;
+        }
 
-                // Identify and extract the version.
-                preg_match(sprintf('#%s#is', $propertyPattern), $this->userAgent, $match);
+        return $this->match(is_array($regex) ? implode('|', $regex) : $regex, (string) $this->getUserAgent());
+    }
 
-                if (false === empty($match[1])) {
-                    $version = ($type === self::VERSION_TYPE_FLOAT ? $this->prepareVersionNo($match[1]) : $match[1]);
+    /**
+     * 在给定规则中查找第一个匹配 User-Agent 的规则名。
+     *
+     * @param array<string, string|array<int, string>> $rules
+     */
+    protected function findDetectionRulesAgainstUserAgent(array $rules, ?string $userAgent = null): string|false
+    {
+        $userAgent ??= $this->getUserAgent();
 
-                    return $version;
-                }
+        if ($userAgent === null || $userAgent === '') {
+            return false;
+        }
+
+        foreach ($rules as $key => $regex) {
+            if (empty($regex)) {
+                continue;
+            }
+
+            if (is_array($regex)) {
+                $regex = implode('|', $regex);
+            }
+
+            if ($this->match($regex, $userAgent)) {
+                return $key;
             }
         }
 
@@ -364,11 +359,12 @@ class Agent extends Mobile_Detect
     }
 
     /**
-     * Merge multiple rules into one array.
-     * @param array $all
-     * @return array
+     * 合并多组规则，同名规则的正则以 | 连接。
+     *
+     * @param array<string, string|array<int, string>> ...$all
+     * @return array<string, string|array<int, string>>
      */
-    protected static function mergeRules(...$all)
+    protected static function mergeRules(array ...$all): array
     {
         $merged = [];
 
@@ -379,28 +375,11 @@ class Agent extends Mobile_Detect
                 } elseif (is_array($merged[$key])) {
                     $merged[$key][] = $value;
                 } else {
-                    $merged[$key] .= '|' . $value;
+                    $merged[$key] .= '|' . (is_array($value) ? implode('|', $value) : $value);
                 }
             }
         }
 
         return $merged;
-    }
-
-    /**
-     * @inheritdoc
-     */
-    public function __call($name, $arguments)
-    {
-        // Make sure the name starts with 'is', otherwise
-        if (strpos($name, 'is') !== 0) {
-            throw new BadMethodCallException("No such method exists: $name");
-        }
-
-        $this->setDetectionType(self::DETECTION_TYPE_EXTENDED);
-
-        $key = substr($name, 2);
-
-        return $this->matchUAAgainstKey($key);
     }
 }
