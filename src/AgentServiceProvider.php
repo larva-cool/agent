@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace Larva\Agent;
 
-use Illuminate\Contracts\Support\DeferrableProvider;
 use Illuminate\Support\ServiceProvider;
 
-class AgentServiceProvider extends ServiceProvider implements DeferrableProvider
+/**
+ * Agent 服务提供器。
+ *
+ * 提供 Agent 服务，用于解析用户代理字符串。
+ */
+class AgentServiceProvider extends ServiceProvider
 {
     /**
      * 注册服务。
@@ -28,17 +32,5 @@ class AgentServiceProvider extends ServiceProvider implements DeferrableProvider
         });
 
         $this->app->alias(Agent::class, 'agent');
-    }
-
-    /**
-     * 获取本 Provider 提供的服务。
-     *
-     * 延迟加载的 Provider 必须声明该列表，否则容器无法在解析时定位到本 Provider。
-     *
-     * @return array<int, string>
-     */
-    public function provides(): array
-    {
-        return [Agent::class, 'agent'];
     }
 }
