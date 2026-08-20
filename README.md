@@ -1,5 +1,6 @@
 # Agent
 
+[![Tests](https://github.com/larva-cool/agent/actions/workflows/tests.yml/badge.svg)](https://github.com/larva-cool/agent/actions/workflows/tests.yml)
 [![Latest Stable Version](https://img.shields.io/packagist/v/larva/agent.svg)](https://packagist.org/packages/larva/agent)
 [![Total Downloads](https://img.shields.io/packagist/dt/larva/agent.svg)](https://packagist.org/packages/larva/agent)
 [![PHP Version](https://img.shields.io/packagist/php-v/larva/agent.svg)](https://packagist.org/packages/larva/agent)
@@ -11,18 +12,16 @@
 
 本项目 Fork 自 [jenssegers/agent](https://github.com/jenssegers/agent)。原仓库已停止维护，本仓库在其基础上继续维护，主要变更：
 
-- 包名由 `jenssegers/agent` 改为 `larva/agent`
-- 命名空间由 `Jenssegers\Agent` 改为 `Larva\Agent`
-- 最低要求 PHP 8.2，测试套件升级至 PHPUnit 12
+- 包名由 `jenssegers/agent` 改为 `larva/agent`，命名空间由 `Jenssegers\Agent` 改为 `Larva\Agent`
+- 底层依赖升级到 Mobile Detect 4.x，最低要求 PHP 8.2，全量补齐强类型声明
 - 支持 Laravel 包自动发现（无需手动注册 ServiceProvider 与 Facade）
 - 新增 `deviceType()` 方法，一次性返回设备类型
-
-> 从 `jenssegers/agent` 迁移：替换 composer 依赖，并把代码中的 `Jenssegers\Agent` 全部替换为 `Larva\Agent` 即可，API 保持兼容。
+- 补充完整测试套件与 GitHub Actions CI
 
 ## 环境要求
 
 - PHP >= 8.2
-- ext-mbstring（由 Mobile Detect 依赖）
+- ext-mbstring
 
 ## 安装
 
@@ -34,10 +33,17 @@ composer require larva/agent
 
 本包已支持 Laravel 包自动发现，安装后即可直接使用 `Agent` Facade，无需任何额外配置。
 
-如果你在 `config/app.php` 中禁用了自动发现，请手动注册：
+```php
+use Agent;
+
+if (Agent::isMobile()) {
+    // 移动端逻辑
+}
+```
+
+如果你禁用了自动发现，请在 `config/app.php` 中手动注册：
 
 ```php
-// config/app.php
 'providers' => [
     Larva\Agent\AgentServiceProvider::class,
 ],
@@ -47,19 +53,7 @@ composer require larva/agent
 ],
 ```
 
-在 Laravel 中使用：
-
-```php
-use Agent;
-
-if (Agent::isMobile()) {
-    // 移动端逻辑
-}
-```
-
 ## 基本用法
-
-创建一个 `Agent` 实例（Laravel 中可直接使用 `Agent` Facade）：
 
 ```php
 use Larva\Agent\Agent;
@@ -67,18 +61,29 @@ use Larva\Agent\Agent;
 $agent = new Agent();
 ```
 
-默认会读取当前请求的 HTTP 头。在 CLI 脚本或需要解析指定 UA 时，可以使用 `setUserAgent()` 与 `setHttpHeaders()`：
+默认会自动从 `$_SERVER` 读取当前请求的 HTTP 头。在 CLI 脚本或需要解析指定 UA 时，使用 `setUserAgent()` 或 `setHttpHeaders()`：
 
 ```php
-$agent->setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_6_8) AppleWebKit/537.13+ (KHTML, like Gecko) Version/5.1.7 Safari/534.57.2');
+$agent->setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15');
+
+// 或者一次性注入完整的 HTTP 头（会自动从中提取 User-Agent）
 $agent->setHttpHeaders($headers);
 ```
 
-Mobile Detect 的全部原生方法依然可用，更多示例见 [Mobile Detect Code Examples](https://github.com/serbanghita/Mobile-Detect/wiki/Code-examples)。
+如果不希望自动读取 `$_SERVER`（例如在测试或队列任务中），可以关闭自动初始化：
+
+```php
+$agent = new Agent(config: ['autoInitOfHttpHeaders' => false]);
+$agent->setUserAgent($userAgent);
+```
+
+> 注意：未设置 User-Agent 就调用 `isMobile()`、`isTablet()`、`is()` 等方法会抛出 `Detection\Exception\MobileDetectException`。
+
+Mobile Detect 的原生方法依然可用，更多示例见 [Mobile Detect Code Examples](https://github.com/serbanghita/Mobile-Detect/wiki/Code-examples)。
 
 ### 属性判断
 
-检查 User-Agent 是否包含某个特性：
+检查 User-Agent 是否命中某条规则：
 
 ```php
 $agent->is('Windows');
@@ -91,8 +96,8 @@ $agent->is('OS X');
 
 ```php
 $agent->isAndroidOS();
-$agent->isNexus();
 $agent->isSafari();
+$agent->isWindows();
 ```
 
 ### 设备类型判断
@@ -105,7 +110,7 @@ $agent->isDesktop();  // 桌面设备（非移动、非平板、非爬虫）
 $agent->isRobot();    // 爬虫 / 机器人
 ```
 
-一次性获取设备类型，返回 `desktop` / `phone` / `tablet` / `robot` / `other`：
+一次性获取设备类型，返回 `desktop` / `phone` / `tablet` / `robot`：
 
 ```php
 $type = $agent->deviceType();
@@ -114,23 +119,28 @@ $type = $agent->deviceType();
 ### 正则匹配
 
 ```php
-$agent->match('regexp');
+$agent->match('regexp', $userAgent);
 ```
 
 ## 扩展功能
 
+以下方法在未识别时统一返回 `false`。
+
 ### 语言偏好
 
-获取浏览器的 `Accept-Language` 列表（按优先级排序）：
+解析 `Accept-Language`，按优先级从高到低返回：
 
 ```php
 $languages = $agent->languages();
-// ['nl-nl', 'nl', 'en-us', 'en']
+// ['zh-cn', 'zh', 'en-us', 'en']
+
+// 也可以直接传入 header 值
+$languages = $agent->languages('nl-nl,nl;q=0.9,en-us;q=0.5');
 ```
 
 ### 设备名称
 
-获取设备名称，如 `iPhone`、`Nexus`、`AsusTablet` 等：
+如 `iPhone`、`iPad`、`Macintosh`、`Nexus` 等：
 
 ```php
 $device = $agent->device();
@@ -138,7 +148,7 @@ $device = $agent->device();
 
 ### 操作系统名称
 
-如 `Windows`、`OS X`、`Ubuntu`、`AndroidOS`、`ChromeOS` 等：
+如 `Windows`、`OS X`、`Ubuntu`、`AndroidOS`、`iOS`、`ChromeOS` 等：
 
 ```php
 $platform = $agent->platform();
@@ -157,30 +167,38 @@ $browser = $agent->browser();
 爬虫识别基于 [jaybizzle/crawler-detect](https://github.com/JayBizzle/Crawler-Detect)：
 
 ```php
-$robot = $agent->robot(); // 非爬虫时返回 false
+$robot = $agent->robot();
+// 'Googlebot'
 ```
 
 ### 版本号
 
-`version()` 可以获取浏览器或平台的版本号：
-
 ```php
-$browser = $agent->browser();
-$version = $agent->version($browser);
+$version = $agent->version($agent->browser());
+// '124.0.0.0'
 
-$platform = $agent->platform();
-$version = $agent->version($platform);
-```
+$version = $agent->version($agent->platform());
 
-版本号也可以按浮点数返回，便于比较：
-
-```php
-use Larva\Agent\Agent;
-
+// 以浮点数返回，便于比较
 $version = $agent->version($agent->browser(), Agent::VERSION_TYPE_FLOAT);
+// 124.0
 ```
 
 > 版本号提取依赖 UA 字符串中的特征片段，部分设备或浏览器可能无法准确返回。
+
+## 从 jenssegers/agent 迁移
+
+除了替换 composer 依赖和命名空间（`Jenssegers\Agent` → `Larva\Agent`），还需注意以下由 Mobile Detect 4.x 引入的破坏性变更：
+
+| 变更点 | 旧版本 | 本版本 |
+| --- | --- | --- |
+| 构造函数 | `new Agent($headers, $userAgent)` | `new Agent(?CacheInterface $cache, array $config)`；HTTP 头改用 `setHttpHeaders()` 注入 |
+| 检测方法参数 | `isMobile($ua, $headers)` | `isMobile()` 无参，先 `setUserAgent()` |
+| `isDesktop()` / `isPhone()` / `deviceType()` | 接受 `$userAgent`、`$httpHeaders` 参数 | 均改为无参 |
+| `match()` | `match($regex, $userAgent = null)` | `match(string $regex, string $userAgent)`，第二个参数必填 |
+| 未设置 UA | 静默返回 `false` | 抛出 `MobileDetectException` |
+| 扩展规则 | `setDetectionType()` + `getDetectionRulesExtended()` | detection type 机制已移除，`getDetectionRulesExtended()` 仍保留并自动用于 `is()` / `is*()` |
+| `deviceType()` 返回值 | 可能返回 `other` | 只返回 `desktop` / `phone` / `tablet` / `robot` |
 
 ## 测试
 

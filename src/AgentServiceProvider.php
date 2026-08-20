@@ -14,8 +14,8 @@ class AgentServiceProvider extends ServiceProvider implements DeferrableProvider
      */
     public function register(): void
     {
-        $this->app->singleton('agent', function ($app) {
-            $agent = new Agent();
+        $this->app->singleton(Agent::class, function ($app) {
+            $agent = new Agent(app('cache.store'));
 
             // Mobile Detect 4.x 不再自动读取 $_SERVER，这里显式注入当前请求的 HTTP 头。
             $agent->setHttpHeaders($app['request']->server());
@@ -24,15 +24,5 @@ class AgentServiceProvider extends ServiceProvider implements DeferrableProvider
         });
 
         $this->app->alias('agent', Agent::class);
-    }
-
-    /**
-     * 获取本 Provider 提供的服务。
-     *
-     * @return array<int, string>
-     */
-    public function provides(): array
-    {
-        return ['agent', Agent::class];
     }
 }

@@ -34,6 +34,6 @@ class Agent extends Facade
      */
     protected static function getFacadeAccessor(): string
     {
-        return 'agent';
+        return \Larva\Agent\Agent::class;
     }
 }
