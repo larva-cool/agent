@@ -1,0 +1,12 @@
+* text=auto eol=lf
+
+*.blade.php diff=html
+*.css diff=css
+*.html diff=html
+*.md diff=markdown
+*.php diff=php
+
+/.github export-ignore
+/.trae export-ignore
+/.vscode export-ignore
+/.workbuddy export-ignore
