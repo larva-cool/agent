@@ -29,6 +29,15 @@ jobs:
           extensions: mbstring
           coverage: none
 
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache/files
+          key: ${{ runner.os }}-php-${{ matrix.php }}-${{ matrix.dependency-version }}-composer-${{ hashFiles('composer.json') }}
+          restore-keys: |
+            ${{ runner.os }}-php-${{ matrix.php }}-${{ matrix.dependency-version }}-composer-
+            ${{ runner.os }}-php-${{ matrix.php }}-composer-
+
       - name: Install dependencies
         run: composer update --${{ matrix.dependency-version }} --prefer-dist --no-interaction --no-progress
 
