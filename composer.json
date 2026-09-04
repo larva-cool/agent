@@ -11,7 +11,7 @@
         }
     ],
     "require": {
-        "php": "^8.2",
+        "php": "^8.4",
         "mobiledetect/mobiledetectlib": "^4.11",
         "jaybizzle/crawler-detect": "^1.4"
     },
